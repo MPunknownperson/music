@@ -1,11 +1,25 @@
 // Shared domain types for the music engine, the arena game engine and the
 // adaptive rule generator. Kept free of runtime code so it can be imported
-// from both client components and server code (including drizzle schema).
+// from both client and server code.
 
 export type PitchedInstrument = "piano" | "guitar";
-export type Instrument = PitchedInstrument | "kick" | "hat";
+export type MelodicInstrument = PitchedInstrument | "epiano" | "bass" | "synth" | "strings";
+export type DrumInstrument = "kick" | "snare" | "hat" | "clap";
+export type Instrument = MelodicInstrument | DrumInstrument;
 export type Role = "melody" | "chord" | "bass" | "drum";
-export type ScaleName = "major" | "minor" | "dorian" | "pentatonic" | "blues";
+export type ScaleName =
+  | "major"
+  | "minor"
+  | "dorian"
+  | "phrygian"
+  | "lydian"
+  | "mixolydian"
+  | "locrian"
+  | "harmonicMinor"
+  | "melodicMinor"
+  | "pentatonic"
+  | "minorPentatonic"
+  | "blues";
 export type InputMode = "keyboard" | "tilt";
 export type HitVia = "keyboard" | "touch" | "shake";
 export type Judgement = "perfect" | "great" | "good" | "miss";

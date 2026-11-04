@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ArenaGame, type ArenaEvent } from "@/engine/game/arena";
 import { buildProfile, generateRules } from "@/engine/game/adaptive";
 import { bridgeArenaToMusic } from "@/engine/integration";
-import { MusicEngine } from "@/engine/music/audio";
+import { getEngine } from "@/engine/music/audio";
 import { composePattern } from "@/engine/music/composer";
 import { SCALE_LABELS, midiName } from "@/engine/music/theory";
 import type {
@@ -18,6 +18,8 @@ import type {
   SessionSummary,
 } from "@/engine/types";
 import { useMotion } from "@/hooks/useMotion";
+import { songToArenaPattern } from "@/lib/song";
+import { addSession, listSessions, listSongs } from "@/lib/store";
 
 const W = 420;
 const H = 640;
@@ -30,10 +32,10 @@ const LANE_KEYS: Record<number, string[]> = {
 };
 
 const JUDGE_STYLE = {
-  perfect: { text: "PERFECT", color: "#facc15" },
-  great: { text: "GREAT", color: "#34d399" },
-  good: { text: "GOOD", color: "#60a5fa" },
-  miss: { text: "MISS", color: "#f87171" },
+  perfect: { text: "PERFECT", color: "#f2c46d" },
+  great: { text: "GREAT", color: "#35c9b0" },
+  good: { text: "GOOD", color: "#4fb3ff" },
+  miss: { text: "MISS", color: "#ff4d6d" },
 } as const;
 
 interface SessionRow extends SessionSummary {
@@ -44,7 +46,7 @@ interface SessionRow extends SessionSummary {
 }
 
 interface SavedComposition {
-  id: number;
+  id: string;
   title: string;
   bpm: number;
   instrument: string;
@@ -97,14 +99,14 @@ function drawArena(canvas: HTMLCanvasElement, g: ArenaGame, flash: Flash, now: n
   const beat = g.currentBeat();
 
   const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, "#0a0a1f");
-  bg.addColorStop(1, "#1b1040");
+  bg.addColorStop(0, "#131217");
+  bg.addColorStop(1, "#131217");
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
   for (let i = 0; i < L; i++) {
     ctx.fillStyle =
-      i === g.playerLane ? "rgba(129,140,248,0.22)" : i % 2 ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.07)";
+      i === g.playerLane ? "rgba(255,122,41,0.18)" : i % 2 ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.07)";
     ctx.fillRect(i * laneW, 0, laneW, H);
   }
 
@@ -128,22 +130,22 @@ function drawArena(canvas: HTMLCanvasElement, g: ArenaGame, flash: Flash, now: n
       ctx.shadowBlur = 14;
     } else if (n.state === "hit") {
       ctx.globalAlpha = Math.max(0, Math.min(1, 1 - Math.max(0, -dt) * 4));
-      ctx.fillStyle = "#fef08a";
-      ctx.shadowColor = "#fde047";
+      ctx.fillStyle = "#f2c46d";
+      ctx.shadowColor = "#f2c46d";
       ctx.shadowBlur = 20;
     } else {
       ctx.globalAlpha = 0.35;
-      ctx.fillStyle = "#ef4444";
+      ctx.fillStyle = "#ff4d6d";
     }
     roundRect(ctx, x, y - h / 2, w, h, 8);
     ctx.restore();
   }
 
-  ctx.fillStyle = "#e0e7ff";
+  ctx.fillStyle = "#f5efe0";
   ctx.fillRect(0, hitY - 2, W, 4);
 
   const px = g.playerLane * laneW;
-  ctx.fillStyle = "rgba(165,180,252,0.55)";
+  ctx.fillStyle = "rgba(53,201,176,0.6)";
   ctx.fillRect(px + 6, hitY + 14, laneW - 12, 8);
 
   if (flash && now - flash.t < 450) {
@@ -158,20 +160,20 @@ function drawArena(canvas: HTMLCanvasElement, g: ArenaGame, flash: Flash, now: n
 
   ctx.fillStyle = "rgba(255,255,255,0.15)";
   ctx.fillRect(0, H - 6, W, 6);
-  ctx.fillStyle = "#818cf8";
+  ctx.fillStyle = "#ff7a29";
   ctx.fillRect(0, H - 6, W * g.progress(), 6);
 }
 
 function Meter({ label, value, display }: { label: string; value: number; display: string }) {
   return (
     <div>
-      <div className="flex justify-between text-xs text-slate-400">
+      <div className="flex justify-between text-xs text-muted">
         <span>{label}</span>
-        <span className="font-mono text-slate-200">{display}</span>
+        <span className="font-mono text-ivory">{display}</span>
       </div>
-      <div className="mt-1 h-2 overflow-hidden rounded-full bg-white/10">
+      <div className="mt-1 h-2 overflow-hidden rounded-lg bg-panel2">
         <div
-          className="h-full rounded-full bg-linear-to-r from-indigo-400 to-fuchsia-400 transition-[width] duration-300"
+          className="h-full rounded-lg bg-sun transition-[width] duration-300"
           style={{ width: `${Math.max(0, Math.min(1, value)) * 100}%` }}
         />
       </div>
@@ -179,15 +181,15 @@ function Meter({ label, value, display }: { label: string; value: number; displa
   );
 }
 
-export default function ArenaClient({ initialCompId }: { initialCompId: number | null }) {
-  const [audio] = useState(() => new MusicEngine());
+export default function ArenaClient({ initialCompId }: { initialCompId: string | null }) {
+  const [audio] = useState(() => getEngine());
   const gameRef = useRef<ArenaGame | null>(null);
   const disposeBridgeRef = useRef<(() => void) | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const flashRef = useRef<Flash>(null);
 
   const [mode, setMode] = useState<InputMode>("keyboard");
-  const [source, setSource] = useState<string>(initialCompId ? String(initialCompId) : "adaptive");
+  const [source, setSource] = useState<string>(initialCompId ?? "adaptive");
   const [runs, setRuns] = useState<SessionRow[]>([]);
   const [profile, setProfile] = useState<BehaviorProfile>(() => buildProfile([]));
   const [rules, setRules] = useState<GameRules>(() => generateRules(buildProfile([])));
@@ -210,9 +212,7 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
 
   const refreshAdaptive = useCallback(async () => {
     try {
-      const res = await fetch("/api/sessions?limit=20", { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { sessions: SessionRow[] };
+      const data = { sessions: listSessions(20) as SessionRow[] };
       const summaries: SessionSummary[] = data.sessions.map((s) => ({
         accuracy: s.accuracy,
         meanOffsetMs: s.meanOffsetMs,
@@ -234,10 +234,14 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
 
   const loadComps = useCallback(async () => {
     try {
-      const res = await fetch("/api/compositions?limit=30", { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { compositions: SavedComposition[] };
-      setComps(data.compositions);
+      const data: SavedComposition[] = listSongs()
+        .map((song) => {
+          const pattern = songToArenaPattern(song);
+          const lead = song.tracks.find((t) => t.role === "melody");
+          return { id: song.id, title: song.title, bpm: song.bpm, instrument: lead?.inst ?? "piano", events: pattern.events };
+        })
+        .filter((c) => c.events.some((e) => e.role === "melody"));
+      setComps(data);
     } catch {
       setError("Could not load compositions");
     }
@@ -322,12 +326,7 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
     disposeBridgeRef.current?.();
     disposeBridgeRef.current = null;
     try {
-      const res = await fetch("/api/sessions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...summary, rules: used }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      addSession(summary, used);
       await refreshAdaptive();
     } catch {
       setError("Run finished, but it could not be saved");
@@ -418,18 +417,18 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
     <div className="mx-auto max-w-6xl space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-indigo-300">Game engine</p>
-          <h1 className="mt-1 text-3xl font-semibold text-white">Rhythm Arena</h1>
-          <p className="mt-1 max-w-xl text-sm text-slate-400">
+          <p className="text-xs uppercase tracking-[0.2em] text-teal">Game engine</p>
+          <h1 className="mt-1 text-3xl font-semibold text-ivory">Rhythm Arena</h1>
+          <p className="mt-1 max-w-xl text-sm text-muted">
             Hit the melody as it falls. The chart is composed by the music engine, judged on its clock, and the
             rules for each run are generated from your play history.
           </p>
         </div>
         <nav className="flex gap-2 text-sm">
-          <Link href="/studio" className="rounded-full bg-white/10 px-4 py-2 text-slate-200 hover:bg-white/20">
+          <Link href="/studio" className="rounded-lg bg-panel2 px-4 py-2 text-ivory hover:bg-line">
             Studio
           </Link>
-          <Link href="/" className="rounded-full bg-white/10 px-4 py-2 text-slate-200 hover:bg-white/20">
+          <Link href="/" className="rounded-lg bg-panel2 px-4 py-2 text-ivory hover:bg-line">
             Home
           </Link>
         </nav>
@@ -442,7 +441,7 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
       )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <section className="rounded-3xl bg-slate-900/70 p-4 ring-1 ring-white/10">
+        <section className="rounded-2xl bg-panel p-4 border border-line">
           <div className="relative mx-auto w-full max-w-[420px]">
             <canvas
               ref={canvasRef}
@@ -452,20 +451,20 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
               aria-label="Rhythm arena playfield"
             />
             {phase !== "playing" && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl bg-slate-950/70 p-6 text-center">
-                <p className="text-sm uppercase tracking-[0.2em] text-indigo-300">
+              <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl bg-ink/70 p-6 text-center">
+                <p className="text-sm uppercase tracking-[0.2em] text-teal">
                   {phase === "done" ? "Run complete" : "Ready"}
                 </p>
                 {lastRun ? (
                   <>
-                    <p className="mt-2 text-4xl font-semibold text-white">{lastRun.score.toLocaleString()}</p>
-                    <p className="mt-2 text-sm text-slate-300">
+                    <p className="mt-2 text-4xl font-semibold text-ivory">{lastRun.score.toLocaleString()}</p>
+                    <p className="mt-2 text-sm text-ivory/80">
                       {lastRun.hits} hits · {lastRun.misses} misses · max combo {lastRun.maxCombo} · accuracy{" "}
                       {pct(lastRun.accuracy)}
                     </p>
                   </>
                 ) : (
-                  <p className="mt-2 max-w-xs text-sm text-slate-300">
+                  <p className="mt-2 max-w-xs text-sm text-ivory/80">
                     {mode === "keyboard"
                       ? "Keys D F J K hit the lanes, arrows move the cursor, Space hits the middle lane."
                       : "Tilt your device to move the cursor lane. Shake to strike. On desktop, use the keyboard."}
@@ -474,7 +473,7 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
                 <button
                   type="button"
                   onClick={start}
-                  className="mt-6 rounded-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 px-6 py-3 text-sm font-semibold text-white shadow-lg hover:brightness-110"
+                  className="mt-6 rounded-lg bg-sun px-6 py-3 text-sm font-semibold text-ebony hover:brightness-110"
                 >
                   {phase === "done" ? "Play again" : "Start run"}
                 </button>
@@ -489,7 +488,7 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
                 type="button"
                 onPointerDown={() => touchLane(i)}
                 disabled={!playing}
-                className="h-14 rounded-2xl bg-white/5 text-xs font-mono text-slate-300 ring-1 ring-white/10 active:bg-indigo-400/40 disabled:opacity-40"
+                className="h-14 rounded-2xl bg-panel2 text-xs font-mono text-ivory/80 border border-line active:bg-sun/40 disabled:opacity-40"
               >
                 {LANE_KEYS[lanes]?.[i] === " " ? "SPC" : LANE_KEYS[lanes]?.[i]?.toUpperCase()}
               </button>
@@ -498,16 +497,16 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
 
           <div className="mx-auto mt-4 flex max-w-[420px] items-center justify-between gap-3">
             <div className="flex gap-4 text-sm">
-              <span className="text-slate-400">Score</span>
-              <span className="font-mono text-white">{hud.score.toLocaleString()}</span>
-              <span className="text-slate-400">Combo</span>
-              <span className="font-mono text-white">{hud.combo}</span>
+              <span className="text-muted">Score</span>
+              <span className="font-mono text-ivory">{hud.score.toLocaleString()}</span>
+              <span className="text-muted">Combo</span>
+              <span className="font-mono text-ivory">{hud.combo}</span>
             </div>
             <button
               type="button"
               onClick={quit}
               disabled={!playing}
-              className="rounded-full bg-white/10 px-4 py-2 text-sm text-slate-200 hover:bg-white/20 disabled:opacity-40"
+              className="rounded-lg bg-panel2 px-4 py-2 text-sm text-ivory hover:bg-line disabled:opacity-40"
             >
               End run
             </button>
@@ -515,8 +514,8 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
         </section>
 
         <aside className="space-y-6">
-          <section className="space-y-4 rounded-3xl bg-slate-900/70 p-5 ring-1 ring-white/10">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-300">Controls</h2>
+          <section className="space-y-4 rounded-2xl bg-panel p-5 border border-line">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-ivory/80">Controls</h2>
             <div className="grid grid-cols-2 gap-2">
               {(["keyboard", "tilt"] as const).map((m) => (
                 <button
@@ -524,8 +523,8 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
                   type="button"
                   disabled={playing}
                   onClick={() => setMode(m)}
-                  className={`rounded-xl px-3 py-2 text-sm capitalize ring-1 ring-white/10 disabled:opacity-40 ${
-                    mode === m ? "bg-indigo-500 text-white" : "bg-white/5 text-slate-300"
+                  className={`rounded-xl px-3 py-2 text-sm capitalize border border-line disabled:opacity-40 ${
+                    mode === m ? "bg-sun text-ebony" : "bg-panel2 text-ivory/80"
                   }`}
                 >
                   {m === "tilt" ? "Motion" : "Keyboard"}
@@ -534,21 +533,21 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
             </div>
 
             {mode === "tilt" && (
-              <div className="space-y-2 rounded-xl bg-white/5 p-3 text-sm">
+              <div className="space-y-2 rounded-xl bg-panel2 p-3 text-sm">
                 {permission === "unsupported" ? (
-                  <p className="text-slate-400">This device has no motion sensors. Use the keyboard instead.</p>
+                  <p className="text-muted">This device has no motion sensors. Use the keyboard instead.</p>
                 ) : !motionOn ? (
                   <button
                     type="button"
                     onClick={enableMotion}
-                    className="w-full rounded-lg bg-white/10 px-3 py-2 text-slate-100 hover:bg-white/20"
+                    className="w-full rounded-lg bg-panel2 px-3 py-2 text-ivory hover:bg-line"
                   >
                     Enable motion sensors
                   </button>
                 ) : (
                   <>
                     <Meter label="Tilt" value={(tiltView + 1) / 2} display={tiltView.toFixed(2)} />
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-muted">
                       {liveSensor ? "Sensor live. Shake to strike the cursor lane." : "Waiting for sensor data…"}
                     </p>
                   </>
@@ -557,12 +556,12 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
             )}
 
             <label className="block text-sm">
-              <span className="text-slate-400">Chart</span>
+              <span className="text-muted">Chart</span>
               <select
                 value={source}
                 disabled={playing}
                 onChange={(e) => setSource(e.target.value)}
-                className="mt-1 w-full rounded-xl bg-slate-800 px-3 py-2 text-slate-100 ring-1 ring-white/10 disabled:opacity-40"
+                className="mt-1 w-full rounded-xl bg-panel2 px-3 py-2 text-ivory border border-line disabled:opacity-40"
               >
                 <option value="adaptive">Adaptive (generated for you)</option>
                 {comps.map((c) => (
@@ -572,13 +571,13 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
                 ))}
               </select>
             </label>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-muted">
               Lanes: {rules.laneCount} · Tempo: {rules.bpm} BPM · Key: {midiName(rules.root)} {SCALE_LABELS[rules.scale]}
             </p>
           </section>
 
-          <section className="space-y-4 rounded-3xl bg-slate-900/70 p-5 ring-1 ring-white/10">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-300">Live stats</h2>
+          <section className="space-y-4 rounded-2xl bg-panel p-5 border border-line">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-ivory/80">Live stats</h2>
             <div className="grid grid-cols-3 gap-3 text-center">
               <Stat label="Hits" value={String(hud.hits)} />
               <Stat label="Misses" value={String(hud.misses)} />
@@ -587,21 +586,21 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
             <Meter label="Accuracy" value={hud.accuracy} display={pct(hud.accuracy)} />
           </section>
 
-          <section className="space-y-4 rounded-3xl bg-slate-900/70 p-5 ring-1 ring-white/10">
+          <section className="space-y-4 rounded-2xl bg-panel p-5 border border-line">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-300">Player profile</h2>
-              <span className="text-xs text-slate-500">{profile.sessions} runs</span>
+              <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-ivory/80">Player profile</h2>
+              <span className="text-xs text-muted">{profile.sessions} runs</span>
             </div>
             <Meter label="Skill" value={profile.skill} display={pct(profile.skill)} />
             <Meter label="Accuracy" value={profile.accuracy} display={pct(profile.accuracy)} />
             <Meter label="Motion usage" value={profile.motionRatio} display={pct(profile.motionRatio)} />
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-muted">
               Average timing offset {profile.meanOffsetMs.toFixed(0)} ms (negative = rushing)
             </p>
           </section>
 
-          <section className="space-y-3 rounded-3xl bg-slate-900/70 p-5 ring-1 ring-white/10">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-300">
+          <section className="space-y-3 rounded-2xl bg-panel p-5 border border-line">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-ivory/80">
               Generated rule program
             </h2>
             <ul className="max-h-64 space-y-2 overflow-auto font-mono text-[11px] leading-relaxed text-emerald-200">
@@ -614,14 +613,14 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
           </section>
 
           {runs.length > 0 && (
-            <section className="space-y-3 rounded-3xl bg-slate-900/70 p-5 ring-1 ring-white/10">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-300">Recent runs</h2>
+            <section className="space-y-3 rounded-2xl bg-panel p-5 border border-line">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-ivory/80">Recent runs</h2>
               <ul className="space-y-1 text-sm">
                 {runs.slice(0, 6).map((r) => (
-                  <li key={r.id} className="flex justify-between text-slate-300">
+                  <li key={r.id} className="flex justify-between text-ivory/80">
                     <span className="capitalize">{r.mode}</span>
                     <span className="font-mono">{r.score.toLocaleString()}</span>
-                    <span className="font-mono text-slate-400">{pct(r.accuracy)}</span>
+                    <span className="font-mono text-muted">{pct(r.accuracy)}</span>
                   </li>
                 ))}
               </ul>
@@ -635,9 +634,9 @@ export default function ArenaClient({ initialCompId }: { initialCompId: number |
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-white/5 py-3">
-      <p className="text-xs text-slate-400">{label}</p>
-      <p className="mt-1 font-mono text-lg text-white">{value}</p>
+    <div className="rounded-xl bg-panel2 py-3">
+      <p className="text-xs text-muted">{label}</p>
+      <p className="mt-1 font-mono text-lg text-ivory">{value}</p>
     </div>
   );
 }

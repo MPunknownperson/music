@@ -1,13 +1,6 @@
-import { db } from "@/db";
-import { sql } from "drizzle-orm";
-
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  try {
-    await db.execute(sql`select 1`);
-    return Response.json({ ok: true });
-  } catch {
-    return Response.json({ ok: false }, { status: 500 });
-  }
+/** Liveness probe. The app is stateless (no database) so it runs on Node or Cloudflare Workers alike. */
+export function GET() {
+  return Response.json({ status: "ok", service: "fret-and-key", time: new Date().toISOString() });
 }

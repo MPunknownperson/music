@@ -1,13 +1,14 @@
+import type { Metadata } from "next";
 import ArenaClient from "@/components/arena/ArenaClient";
 
+export const metadata: Metadata = { title: "Rhythm arena · Fret & Key" };
 export const dynamic = "force-dynamic";
 
 export default async function ArenaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ comp?: string }>;
+  searchParams: Promise<{ song?: string; comp?: string }>;
 }) {
-  const { comp } = await searchParams;
-  const id = comp ? Number.parseInt(comp, 10) : Number.NaN;
-  return <ArenaClient initialCompId={Number.isFinite(id) ? id : null} />;
+  const { song, comp } = await searchParams;
+  return <ArenaClient initialCompId={song ?? comp ?? null} />;
 }

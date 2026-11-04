@@ -1,22 +1,27 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import Nav from "@/components/ui/Nav";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Arena · Music & Game Engine",
+  title: "Fret & Key · Music production and instrument studio",
   description:
-    "Synth piano and guitar, a generative composer, a rhythm arena whose rules adapt to the player, and motion controls.",
+    "Play a simulated piano and guitar, explore scales and chords, compose multi-track songs and practise rhythm. Works with touch, computer keyboards and game controllers.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#131217",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-slate-950 text-slate-100 antialiased">
-        <div
-          aria-hidden
-          className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_top,#312e81_0%,transparent_55%),radial-gradient(circle_at_bottom_right,#701a75_0%,transparent_50%)] opacity-80"
-        />
-        <main className="px-4 py-8 sm:px-6 lg:px-8">{children}</main>
+      <body className="min-h-screen font-sans antialiased">
+        <Nav />
+        <main className="mx-auto max-w-7xl px-3 pb-24 pt-4 sm:px-4 md:pb-10">{children}</main>
       </body>
     </html>
   );
